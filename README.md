@@ -2,6 +2,10 @@
 
 `mineru-pdf-translate` 是一个可直接用于 Codex 的 skill，同时也包含一个可以独立运行的 Python 脚本，用来把本地 PDF 文档翻译成目标语言 PDF。
 
+## 效果展示
+
+![alt text](361d25f9-c585-4067-b550-f346dc3a0e9f.png)
+
 整体流程是：
 
 1. 调用 MinerU 在线解析 PDF
@@ -23,12 +27,14 @@
 
 ```text
 .
-|-- SKILL.md
 |-- README.md
-|-- agents/
-|   `-- openai.yaml
-`-- scripts/
-    `-- pdf_translate.py
+|-- mineru-pdf-translate/
+|   |-- SKILL.md
+|   |-- agents/
+|   |   `-- openai.yaml
+|   `-- scripts/
+|       `-- pdf_translate.py
+`-- 361d25f9-c585-4067-b550-f346dc3a0e9f.png
 ```
 
 ## 运行要求
@@ -45,10 +51,10 @@
 
 ### 方式 1：作为 Codex skill 使用
 
-把这个仓库放到 Codex 的 skills 目录，例如：
+把仓库里的 `mineru-pdf-translate/` 目录放到 Codex 的 skills 目录，例如：
 
 ```powershell
-Copy-Item -Recurse . $HOME\.codex\skills\mineru-pdf-translate
+Copy-Item -Recurse .\mineru-pdf-translate $HOME\.codex\skills\mineru-pdf-translate
 ```
 
 然后在 Codex 里针对包含 PDF 的目录调用这个 skill。
@@ -58,13 +64,13 @@ Copy-Item -Recurse . $HOME\.codex\skills\mineru-pdf-translate
 在包含待翻译 PDF 的目录中执行：
 
 ```powershell
-python <skill-dir>\scripts\pdf_translate.py --workdir .
+python <repo-dir>\mineru-pdf-translate\scripts\pdf_translate.py --workdir .
 ```
 
 例如：
 
 ```powershell
-python C:\path\to\mineru-pdf-translate\scripts\pdf_translate.py --workdir .
+python C:\path\to\mineru-pdf-translate\mineru-pdf-translate\scripts\pdf_translate.py --workdir .
 ```
 
 ## 配置方式
