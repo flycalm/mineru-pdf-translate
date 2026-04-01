@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.pdf_translate_tmp/
+translated/
+
+mineru密钥.txt
+翻译大模型url以及key.txt

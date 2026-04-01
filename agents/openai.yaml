@@ -1,0 +1,7 @@
+interface:
+  display_name: "MinerU PDF Translate"
+  short_description: "Translate local PDFs with MinerU into final PDFs."
+  default_prompt: "Use $mineru-pdf-translate to translate all PDFs in the current folder into final translated PDFs."
+
+policy:
+  allow_implicit_invocation: true
