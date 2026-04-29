@@ -21,8 +21,9 @@ Use this skill when the task is "translate PDFs in this folder" and the workflow
    `PDF_TRANSLATE_LLM_BASE_URL`
    `PDF_TRANSLATE_LLM_API_KEY`
    `PDF_TRANSLATE_MODEL` is optional.
-4. Run the bundled script from the target folder.
-5. Deliver only the final PDFs from the `translated/` folder unless the user asks for intermediates.
+4. Run the bundled script from the target folder. Prefer `--upload-api-url mineru --force --keep-temp` for robust direct MinerU upload, rebuilds, and retained intermediates.
+5. QA the generated PDF before delivery. At minimum, check that browser headers/footers, raw LaTeX, placeholder tokens, MathJax errors, and OCR artifacts are not present.
+6. Deliver only the final PDFs from the `translated/` folder unless the user asks for intermediates. If an old output PDF is locked by another app on Windows, write a clearly named optimized file such as `*_zh_optimized.pdf` instead of silently failing to overwrite it.
 
 ## Commands
 
@@ -32,6 +33,12 @@ Translate all PDFs in the current folder into Simplified Chinese PDFs:
 
 ```powershell
 python <skill-dir>\scripts\pdf_translate.py --workdir .
+```
+
+Use MinerU's direct upload API and preserve intermediates during QA:
+
+```powershell
+python <skill-dir>\scripts\pdf_translate.py --workdir . --upload-api-url mineru --force --keep-temp
 ```
 
 Force rebuild existing outputs:
@@ -46,14 +53,58 @@ Translate into another language or suffix:
 python <skill-dir>\scripts\pdf_translate.py --workdir . --target-language "Japanese" --target-suffix ja
 ```
 
+On Windows, if `python` resolves to the Microsoft Store app alias and fails, use `py` instead:
+
+```powershell
+py <skill-dir>\scripts\pdf_translate.py --workdir . --upload-api-url mineru --force --keep-temp
+```
+
+## QA And Repair
+
+The normal workflow should translate the full PDF directly. Do not create key-page samples unless actively debugging the skill implementation.
+
+The script is expected to protect formulas, images, and code before LLM translation; render formulas through a verified MathJax URL; suppress Chrome/Edge PDF headers and footers; retain `translated.md` with `--keep-temp`; and apply high-confidence MinerU OCR repairs. After a run, inspect the final PDF and text QA output.
+
+Useful Poppler commands:
+
+```powershell
+pdftoppm -r 120 -f 1 -l 1 .\translated\paper_zh.pdf .\qa_pages\p01 -png
+pdftotext -layout -enc UTF-8 .\translated\paper_zh.pdf -
+pdfinfo .\translated\paper_zh.pdf
+```
+
+Recommended text QA checks on the final PDF:
+
+```powershell
+$txt = pdftotext -layout -enc UTF-8 '.\translated\paper_zh.pdf' -
+[pscustomobject]@{
+  FooterUri        = ($txt | Select-String -SimpleMatch 'file:///' | Measure-Object).Count
+  KeepPlaceholders = ($txt | Select-String -SimpleMatch '@@PDF_TRANSLATE_KEEP_' | Measure-Object).Count
+  MathError        = ($txt | Select-String -Pattern 'Missing|unrecognized|delimiter|MathJax' | Measure-Object).Count
+  QuestionPairs    = ([regex]::Matches(($txt -join "`n"), '\?\?')).Count
+  RawLatex         = ($txt | Select-String -Pattern '\\begin\{|\\mathbb|\\frac|\$\$' | Measure-Object).Count
+  TopNabla         = ($txt | Select-String -SimpleMatch 'nabla' | Measure-Object).Count
+  IComip           = ($txt | Select-String -SimpleMatch 'IComip' | Measure-Object).Count
+} | Format-List
+```
+
+For a clean final render, these counts should normally be zero. Some nonzero results may be acceptable only after comparing against the original PDF and confirming they are legitimate content rather than OCR/rendering artifacts.
+
+If only HTML/CSS/rendering or deterministic OCR repair rules changed, re-render from `.pdf_translate_tmp/<doc>/mineru/translated.md` instead of rerunning MinerU or the LLM. If translation quality or placeholder preservation changed, rerun the full PDF normally.
+
 ## Notes
 
 - The script writes final PDFs into `translated/`.
-- Temporary files go to `.pdf_translate_tmp/` and are deleted automatically unless `--keep-temp` is used.
+- Temporary files go to `.pdf_translate_tmp/` and are deleted automatically unless `--keep-temp` is used. With `--keep-temp`, the script keeps `full.md`, extracted images, and `translated.md`.
 - The script auto-installs the Python `markdown` package if it is missing.
 - The script auto-detects Edge or Chrome for headless PDF printing. Override with `--browser-path` when needed.
-- Long formulas are rendered with MathJax v4 and configured for automatic line breaking.
+- Math formulas are protected before LLM translation so the model should not edit variables, delimiters, or image links.
+- Math formulas are rendered with MathJax v3. Do not switch to MathJax v4 CDN unless the exact URL has been verified; an unavailable MathJax script causes raw LaTeX to print into the PDF.
+- Use `--no-pdf-header-footer` for Chrome/Edge PDF printing. Older `--print-to-pdf-no-header` may not work and can leave every page polluted with dates, titles, `file:///.../_render.html`, and page numbers.
+- Before rendering, remove or change the destination PDF path if the output already exists. On Windows, an open PDF viewer may lock the file and prevent overwrite.
 - The temporary upload step defaults to `https://tmpfiles.org/api/v1/upload`. Override with `--upload-api-url` if another compatible uploader is needed.
+- `--upload-api-url mineru` uses MinerU's direct upload flow and avoids the temporary file host.
+- Common MinerU OCR artifacts in technical PDFs include `top- $\mathbf { \nabla } \cdot \mathbf { k }$` for `top-k`, `IComip` for `IComp`, and `??` in place of variables. Add deterministic repair rules for high-confidence cases only, and compare against the source PDF when uncertain.
 
 ## Resources
 

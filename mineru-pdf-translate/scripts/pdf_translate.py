@@ -17,6 +17,8 @@ from typing import Iterable
 
 MINERU_CREATE_TASK_URL = "https://mineru.net/api/v4/extract/task"
 MINERU_TASK_URL_TEMPLATE = "https://mineru.net/api/v4/extract/task/{task_id}"
+MINERU_BATCH_UPLOAD_URL = "https://mineru.net/api/v4/file-urls/batch"
+MINERU_BATCH_RESULT_URL_TEMPLATE = "https://mineru.net/api/v4/extract-results/batch/{batch_id}"
 DEFAULT_UPLOAD_API_URL = "https://tmpfiles.org/api/v1/upload"
 DEFAULT_MODEL = "gpt-5.4-mini"
 DEFAULT_TARGET_LANGUAGE = "Simplified Chinese"
@@ -24,7 +26,7 @@ DEFAULT_TARGET_SUFFIX = "zh"
 
 POLL_INTERVAL_SECONDS = 10
 POLL_TIMEOUT_SECONDS = 60 * 30
-MAX_TRANSLATION_CHARS = 12000
+MAX_TRANSLATION_CHARS = 6000
 LLM_MAX_RETRIES = 5
 
 
@@ -109,14 +111,31 @@ def json_request(
         raise PipelineError(f"Invalid JSON from {url}: {body[:500]}") from exc
 
 
+def upload_binary(url: str, path: Path) -> None:
+    run_curl(["-sS", "-X", "PUT", "-T", str(path), url])
+
+
 def read_text_if_exists(path: Path) -> str | None:
     if path.exists():
         return path.read_text(encoding="utf-8").strip()
     return None
 
 
+def read_first_existing_text(paths: Iterable[Path]) -> str | None:
+    for path in paths:
+        text = read_text_if_exists(path)
+        if text:
+            return text
+    return None
+
+
 def load_mineru_token(workdir: Path, token_override: str | None) -> str:
-    token = token_override or read_text_if_exists(workdir / "mineru密钥.txt")
+    token = token_override or read_first_existing_text(
+        [
+            workdir / "mineru密钥.txt",
+            workdir / "mineru瀵嗛挜.txt",
+        ]
+    )
     if not token:
         raise PipelineError("MinerU token not found. Set MINERU_API_TOKEN or create mineru密钥.txt in the working directory.")
     return token
@@ -125,8 +144,12 @@ def load_mineru_token(workdir: Path, token_override: str | None) -> str:
 def load_llm_config(workdir: Path, base_url: str | None, api_key: str | None, model: str) -> LlmConfig:
     file_base_url = None
     file_api_key = None
-    config_file = workdir / "翻译大模型url以及key.txt"
-    config_text = read_text_if_exists(config_file)
+    config_text = read_first_existing_text(
+        [
+            workdir / "翻译大模型url以及key.txt",
+            workdir / "缈昏瘧澶фā鍨媢rl浠ュ強key.txt",
+        ]
+    )
     if config_text:
         lines = [line.strip() for line in config_text.splitlines() if line.strip()]
         if len(lines) >= 2:
@@ -197,6 +220,64 @@ def upload_pdf(pdf_path: Path, upload_api_url: str) -> str:
         raise PipelineError(f"Upload failed: {payload}")
     raw_url = payload["data"]["url"]
     return raw_url.replace("http://tmpfiles.org/", "https://tmpfiles.org/dl/")
+
+
+def create_mineru_batch_task(pdf_path: Path, token: str) -> str:
+    log(f"  Requesting MinerU upload URL for {pdf_path.name}")
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "source": "codex",
+    }
+    payload = {
+        "enable_formula": True,
+        "enable_table": True,
+        "language": "en",
+        "files": [{"name": pdf_path.name}],
+    }
+    response = json_request("POST", MINERU_BATCH_UPLOAD_URL, headers=headers, payload=payload, timeout=180)
+    if response.get("code") != 0:
+        raise PipelineError(f"MinerU upload URL creation failed: {json.dumps(response, ensure_ascii=False)}")
+    data = response.get("data", {})
+    batch_id = data.get("batch_id")
+    files = data.get("file_urls") or []
+    upload_url = files[0].get("url") if isinstance(files[0], dict) else files[0]
+    if not batch_id or not files or not upload_url:
+        raise PipelineError(f"MinerU did not return upload URL: {json.dumps(response, ensure_ascii=False)}")
+    log("  Uploading PDF to MinerU storage")
+    upload_binary(upload_url, pdf_path)
+    return batch_id
+
+
+def wait_for_mineru_batch(batch_id: str, token: str) -> dict:
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "source": "codex",
+    }
+    deadline = time.time() + POLL_TIMEOUT_SECONDS
+    while time.time() < deadline:
+        response = json_request(
+            "GET",
+            MINERU_BATCH_RESULT_URL_TEMPLATE.format(batch_id=batch_id),
+            headers=headers,
+            timeout=120,
+        )
+        if response.get("code") != 0:
+            raise PipelineError(f"MinerU batch polling failed: {json.dumps(response, ensure_ascii=False)}")
+        files = response.get("data", {}).get("extract_result") or []
+        if files:
+            result = files[0]
+            state = result.get("state")
+            if state == "done":
+                return result
+            if state == "failed":
+                raise PipelineError(f"MinerU parsing failed: {result.get('err_msg') or 'unknown error'}")
+            log(f"  MinerU task state: {state}")
+        else:
+            log("  MinerU task pending")
+        time.sleep(POLL_INTERVAL_SECONDS)
+    raise PipelineError(f"MinerU polling timed out for batch {batch_id}")
 
 
 def create_mineru_task(file_url: str, token: str) -> str:
@@ -271,15 +352,55 @@ def find_markdown_file(extract_dir: Path) -> Path:
     return candidates[0]
 
 
-def protect_images(markdown_text: str) -> tuple[str, dict[str, str]]:
+def repair_common_mineru_ocr_artifacts(markdown_text: str) -> str:
+    repaired = markdown_text
+    replacements = {
+        r"top- $\mathbf { \nabla } \cdot \mathbf { k }$": "top-k",
+        r"split- $\mathbf { \nabla } \cdot \mathbf { k }$": "split-k",
+        r"I C o m i p": "I C o m p",
+        r"query token ??": "query token $t$",
+        r"before the ??-th layer": r"before the $l$-th layer",
+        r"hidden size ??.": r"hidden size $d$.",
+        r"intermediate output ??′ ??′ ??′": "intermediate output",
+        r"the?? intermediate output": "the intermediate output",
+        r"contiguous ?? tokens": r"contiguous $s$ tokens",
+        r"rank ?? sends": r"rank $i$ sends",
+        r"local ?? uncompressed": r"local $s$ uncompressed",
+        r"head dimension ?? to 512": r"head dimension $c$ to 512",
+        r"step ??": r"step $t$",
+        r"6ℎ?? FLOPs": r"$6 h d$ FLOPs",
+        r"= lcm(??,??′)??′": r"$k _ { 2 } = \frac { \operatorname { l c m } ( m , m ^ { \prime } ) } { m ^ { \prime } }$",
+        r"sg - log ?????? ( ???? | ??,??<?? )???? ( ???? | ??,??<?? )": r"$\mathrm { sg } \log \pi _ { \theta _ i } ( y _ t \mid x , y _ { < t } )$",
+        r"{q??,??}": r"$\{ \mathbf { q } _ { t , i } \}$",
+        r"CSprsComp??": r"$C _ { t } ^ { \mathsf { S p r s C o m p } }$",
+    }
+    for source, target in replacements.items():
+        repaired = repaired.replace(source, target)
+    return repaired
+
+
+def protect_markdown_segments(markdown_text: str) -> tuple[str, dict[str, str]]:
     placeholders: dict[str, str] = {}
 
-    def replace(match: re.Match[str]) -> str:
-        key = f"[[IMAGE_{len(placeholders)}]]"
-        placeholders[key] = match.group(0)
+    def add_placeholder(value: str) -> str:
+        key = f"@@PDF_TRANSLATE_KEEP_{len(placeholders):06d}@@"
+        placeholders[key] = value
         return key
 
-    protected = re.sub(r"!\[[^\]]*]\([^)\n]+\)", replace, markdown_text)
+    def replace(match: re.Match[str]) -> str:
+        return add_placeholder(match.group(0))
+
+    protected = markdown_text
+    protectors: list[tuple[str, int]] = [
+        (r"```[\s\S]*?```", 0),
+        (r"!\[[^\]]*]\([^)\n]+\)", 0),
+        (r"\$\$[\s\S]*?\$\$", 0),
+        (r"\\\[[\s\S]*?\\\]", 0),
+        (r"\\\([\s\S]*?\\\)", 0),
+        (r"(?<!\\)\$(?![\s\.,;:!?，。；：！？）\)])(?:\\.|[^$\\\n]){1,2000}(?<!\\)\$", 0),
+    ]
+    for pattern, flags in protectors:
+        protected = re.sub(pattern, replace, protected, flags=flags)
     return protected, placeholders
 
 
@@ -288,6 +409,25 @@ def restore_placeholders(text: str, placeholders: dict[str, str]) -> str:
     for key, value in placeholders.items():
         restored = restored.replace(key, value)
     return restored
+
+
+def protect_math_segments(text: str, prefix: str = "MATH") -> tuple[str, dict[str, str]]:
+    placeholders: dict[str, str] = {}
+
+    def replace(match: re.Match[str]) -> str:
+        key = f"@@PDF_TRANSLATE_{prefix}_{len(placeholders):06d}@@"
+        placeholders[key] = match.group(0)
+        return key
+
+    protected = text
+    for pattern in [
+        r"\$\$[\s\S]*?\$\$",
+        r"\\\[[\s\S]*?\\\]",
+        r"\\\([\s\S]*?\\\)",
+        r"(?<!\\)\$(?![\s\.,;:!?，。；：！？）\)])(?:\\.|[^$\\\n]){1,2000}(?<!\\)\$",
+    ]:
+        protected = re.sub(pattern, replace, protected)
+    return protected, placeholders
 
 
 def split_long_text(text: str, limit: int = MAX_TRANSLATION_CHARS) -> list[str]:
@@ -327,12 +467,93 @@ def split_long_text(text: str, limit: int = MAX_TRANSLATION_CHARS) -> list[str]:
     return chunks
 
 
+def contains_placeholder(text: str) -> bool:
+    return bool(re.search(r"@@PDF_TRANSLATE_KEEP_\d{6}@@", text))
+
+
+def split_placeholder_line(line: str, limit: int) -> list[str]:
+    parts = re.split(r"(@@PDF_TRANSLATE_KEEP_\d{6}@@)", line)
+    pieces: list[str] = []
+    current = ""
+
+    def flush() -> None:
+        nonlocal current
+        if current:
+            pieces.append(current)
+            current = ""
+
+    for part in parts:
+        if not part:
+            continue
+        if contains_placeholder(part):
+            if len(current) + len(part) > limit:
+                flush()
+            pieces.append(part)
+            continue
+        while part:
+            remaining = limit - len(current)
+            if remaining <= 0:
+                flush()
+                remaining = limit
+            current += part[:remaining]
+            part = part[remaining:]
+            if len(current) >= limit:
+                flush()
+    flush()
+    return pieces
+
+
+def split_long_text_preserving_placeholders(text: str, limit: int = MAX_TRANSLATION_CHARS) -> list[str]:
+    chunks: list[str] = []
+    current = ""
+
+    def flush() -> None:
+        nonlocal current
+        if current:
+            chunks.append(current)
+            current = ""
+
+    for block in re.split(r"(\n\s*\n)", text):
+        if not block:
+            continue
+        if len(block) > limit:
+            flush()
+            for line in block.splitlines(keepends=True):
+                line_pieces = split_placeholder_line(line, limit) if len(line) > limit else [line]
+                for piece in line_pieces:
+                    if len(current) + len(piece) > limit:
+                        flush()
+                    current += piece
+            flush()
+            continue
+        if len(current) + len(block) > limit:
+            flush()
+        current += block
+    flush()
+    return chunks
+
+
+def validate_placeholders(source: str, translated: str, chunk_index: int) -> None:
+    source_placeholders = sorted(set(re.findall(r"@@PDF_TRANSLATE_KEEP_\d{6}@@", source)))
+    translated_placeholders = sorted(set(re.findall(r"@@PDF_TRANSLATE_KEEP_\d{6}@@", translated)))
+    if source_placeholders != translated_placeholders:
+        missing = sorted(set(source_placeholders) - set(translated_placeholders))
+        extra = sorted(set(translated_placeholders) - set(source_placeholders))
+        raise PipelineError(
+            f"Translation changed protected placeholders in chunk {chunk_index}. "
+            f"Missing: {missing[:5]} Extra: {extra[:5]}"
+        )
+
+
 def translate_chunk(chunk: str, llm: LlmConfig, target_language: str) -> str:
     system_prompt = (
         "You are a professional translator for academic papers. "
         f"Translate the Markdown content into {target_language}. "
-        "Preserve all Markdown structure, heading levels, citations, numbering, tables, URLs, image placeholders, "
-        "file paths, formulas, and code exactly. "
+        "Preserve Markdown structure, heading levels, citations, numbering, tables, URLs, file paths, and placeholders exactly. "
+        "Never edit tokens that match @@PDF_TRANSLATE_KEEP_000000@@ style. "
+        "Before returning, verify that every placeholder from the input appears exactly once in the output. "
+        "Keep technical abbreviations such as CSA, HCA, MoE, MQA, KV cache, FLOPs, FP4, FP8, BF16, top-k, rank, token, and logits stable. "
+        "Translate surrounding prose naturally and consistently for an academic paper. "
         "Do not add explanations, notes, or code fences. "
         "Only output the translated Markdown."
     )
@@ -342,7 +563,7 @@ def translate_chunk(chunk: str, llm: LlmConfig, target_language: str) -> str:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": chunk},
         ],
-        "temperature": 0.2,
+        "temperature": 0,
     }
     headers = {
         "Authorization": f"Bearer {llm.api_key}",
@@ -372,22 +593,39 @@ def translate_chunk(chunk: str, llm: LlmConfig, target_language: str) -> str:
 
 def translate_markdown(markdown_path: Path, llm: LlmConfig, target_language: str) -> str:
     log(f"  Translating Markdown to {target_language}")
-    source = markdown_path.read_text(encoding="utf-8")
-    protected, placeholders = protect_images(source)
-    chunks = split_long_text(protected)
+    source = repair_common_mineru_ocr_artifacts(markdown_path.read_text(encoding="utf-8"))
+    protected, placeholders = protect_markdown_segments(source)
+    chunks = split_long_text_preserving_placeholders(protected)
     translated_chunks: list[str] = []
     for index, chunk in enumerate(chunks, start=1):
         log(f"    Translating chunk {index}/{len(chunks)}")
-        translated_chunks.append(translate_chunk(chunk, llm, target_language))
+        last_error: Exception | None = None
+        for attempt in range(1, LLM_MAX_RETRIES + 1):
+            translated = translate_chunk(chunk, llm, target_language)
+            try:
+                validate_placeholders(chunk, translated, index)
+                break
+            except PipelineError as exc:
+                last_error = exc
+                if attempt == LLM_MAX_RETRIES:
+                    raise
+                log(f"      Placeholder validation failed, retrying chunk {index}: {exc}")
+                time.sleep(attempt * 2)
+        else:
+            assert last_error is not None
+            raise last_error
+        translated_chunks.append(translated)
     return restore_placeholders("".join(translated_chunks), placeholders)
 
 
 def sanitize_html(markdown_module, markdown_text: str) -> str:
-    return markdown_module.markdown(
-        markdown_text,
+    protected, placeholders = protect_math_segments(markdown_text, prefix="HTML_MATH")
+    body_html = markdown_module.markdown(
+        protected,
         extensions=["tables", "fenced_code", "sane_lists", "toc", "nl2br"],
         output_format="html5",
     )
+    return restore_placeholders(body_html, placeholders)
 
 
 def html_template(title: str, body_html: str) -> str:
@@ -426,7 +664,7 @@ def html_template(title: str, body_html: str) -> str:
       }}
     }};
   </script>
-  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@4/es5/tex-svg.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
   <style>
     @page {{
       size: A4;
@@ -482,14 +720,17 @@ def html_template(title: str, body_html: str) -> str:
       border-radius: 3px;
     }}
     mjx-container {{
-      overflow-x: auto;
-      overflow-y: hidden;
+      overflow: visible;
       max-width: 100%;
     }}
     mjx-container[display="true"] {{
       display: block;
       max-width: 100%;
       margin: 12px 0;
+    }}
+    mjx-container svg {{
+      max-width: 100%;
+      height: auto;
     }}
     pre {{
       white-space: pre-wrap;
@@ -524,16 +765,20 @@ def render_markdown_to_pdf(
     body_html = sanitize_html(markdown_module, markdown_text)
     html_path = work_dir / "_render.html"
     html_path.write_text(html_template(title, body_html), encoding="utf-8")
+    if out_pdf_path.exists():
+        out_pdf_path.unlink()
     file_url = html_path.resolve().as_uri()
     run_command(
         [
             browser_path,
             "--headless",
             "--disable-gpu",
+            "--no-sandbox",
+            "--disable-background-networking",
             "--run-all-compositor-stages-before-draw",
             "--virtual-time-budget=15000",
             f"--print-to-pdf={out_pdf_path.resolve()}",
-            "--print-to-pdf-no-header",
+            "--no-pdf-header-footer",
             file_url,
         ]
     )
@@ -552,17 +797,22 @@ def process_pdf(
     target_suffix: str,
     upload_api_url: str,
     markdown_module,
+    keep_temp: bool,
 ) -> None:
     doc_tmp_dir = tmp_root / pdf_path.stem
     ensure_clean_dir(doc_tmp_dir)
 
-    upload_url = upload_pdf(pdf_path, upload_api_url)
-    log("  Temporary file URL ready")
+    if upload_api_url == "mineru":
+        batch_id = create_mineru_batch_task(pdf_path, mineru_token)
+        log(f"  MinerU batch task created: {batch_id}")
+        task_data = wait_for_mineru_batch(batch_id, mineru_token)
+    else:
+        upload_url = upload_pdf(pdf_path, upload_api_url)
+        log("  Temporary file URL ready")
 
-    task_id = create_mineru_task(upload_url, mineru_token)
-    log(f"  MinerU task created: {task_id}")
-
-    task_data = wait_for_mineru(task_id, mineru_token)
+        task_id = create_mineru_task(upload_url, mineru_token)
+        log(f"  MinerU task created: {task_id}")
+        task_data = wait_for_mineru(task_id, mineru_token)
     zip_url = task_data.get("full_zip_url")
     if not zip_url:
         raise PipelineError(f"MinerU result missing full_zip_url: {json.dumps(task_data, ensure_ascii=False)}")
@@ -576,6 +826,8 @@ def process_pdf(
 
     markdown_path = find_markdown_file(extract_dir)
     translated_markdown = translate_markdown(markdown_path, llm, target_language)
+    translated_markdown_path = markdown_path.parent / "translated.md"
+    translated_markdown_path.write_text(translated_markdown, encoding="utf-8")
 
     out_pdf_path = final_output_dir / f"{pdf_path.stem}_{target_suffix}.pdf"
     render_markdown_to_pdf(
@@ -587,7 +839,8 @@ def process_pdf(
         browser_path,
     )
 
-    shutil.rmtree(doc_tmp_dir, ignore_errors=True)
+    if not keep_temp:
+        shutil.rmtree(doc_tmp_dir, ignore_errors=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -652,6 +905,7 @@ def main() -> int:
                 args.target_suffix,
                 args.upload_api_url,
                 markdown_module,
+                args.keep_temp,
             )
             log(f"[{index}/{len(pdfs)}] Done: {pdf_path.name}")
         except Exception as exc:  # noqa: BLE001
