@@ -39,9 +39,8 @@
 
 ## 运行要求
 
-- Python 3.10 或更高版本
-- 系统中可用 `curl.exe`
-- 已安装 Microsoft Edge、Google Chrome 或 Chromium 之一，用于无头打印 PDF
+- Python 3.10 或更高版本（仅使用标准库发起网络请求，无需 curl）
+- 已安装 Microsoft Edge、Google Chrome 或 Chromium 之一，用于无头打印 PDF（Windows / macOS / Linux 均可）
 - 有可用的 MinerU API Token
 - 有可用的 OpenAI 兼容接口地址和 API Key
 
@@ -96,9 +95,10 @@ $env:MINERU_API_TOKEN="your_mineru_token"
 $env:PDF_TRANSLATE_LLM_BASE_URL="https://your-api-base-url"
 $env:PDF_TRANSLATE_LLM_API_KEY="your_api_key"
 $env:PDF_TRANSLATE_MODEL="gpt-5.4-mini"
+$env:PDF_TRANSLATE_BROWSER="C:\Program Files\Google\Chrome\Application\chrome.exe"
 ```
 
-`PDF_TRANSLATE_MODEL` 是可选项，默认值为 `gpt-5.4-mini`。
+`PDF_TRANSLATE_MODEL` 与 `PDF_TRANSLATE_BROWSER` 是可选项，模型默认值为 `gpt-5.4-mini`。
 
 ## 使用示例
 
@@ -108,10 +108,16 @@ $env:PDF_TRANSLATE_MODEL="gpt-5.4-mini"
 python <skill-dir>\scripts\pdf_translate.py --workdir .
 ```
 
-强制重建已存在的输出文件：
+强制重建已存在的输出文件（同时丢弃缓存的解析与翻译结果）：
 
 ```powershell
 python <skill-dir>\scripts\pdf_translate.py --workdir . --force
+```
+
+只改了渲染样式时，从缓存译文直接重新出 PDF：
+
+```powershell
+python <skill-dir>\scripts\pdf_translate.py --workdir . --render-only --keep-temp
 ```
 
 翻译成其他语言，并自定义输出后缀：
@@ -138,14 +144,25 @@ python <skill-dir>\scripts\pdf_translate.py `
 - `--temp-dir`：临时目录，默认是 `.pdf_translate_tmp`
 - `--target-language`：目标翻译语言，默认是 `Simplified Chinese`
 - `--target-suffix`：输出文件名后缀，默认是 `zh`
+- `--source-language`：传给 MinerU 的源文档语言提示，默认是 `en`
 - `--mineru-token`：直接覆盖 MinerU Token
 - `--llm-base-url`：直接覆盖 OpenAI 兼容接口地址
 - `--llm-api-key`：直接覆盖 OpenAI 兼容接口 Key
 - `--llm-model`：指定模型名称
 - `--browser-path`：手动指定 Edge / Chrome / Chromium 路径
-- `--upload-api-url`：覆盖默认的临时上传接口
-- `--force`：即使目标文件已存在也重新生成
+- `--upload-api-url`：默认 `mineru`（直传 MinerU 存储）；也可指定 tmpfiles 兼容上传接口 URL
+- `--force`：丢弃缓存的解析与翻译结果，完全重跑
+- `--render-only`：跳过 MinerU 和 LLM，直接从缓存的译文 Markdown 重新渲染 PDF（配合 `--keep-temp` 使用）
 - `--keep-temp`：保留临时目录，不在结束后清理
+
+## 断点续跑
+
+临时目录中的中间产物同时是各阶段的缓存：
+
+- 已有 `mineru/full.md` 时跳过 MinerU 解析
+- 已有 `mineru/translated_<suffix>.md` 时跳过 LLM 翻译
+- 运行失败时临时目录自动保留，修复问题后重跑同一命令即可从断点继续
+- 想全部重来用 `--force`；只想改渲染样式后重出 PDF 用 `--render-only`
 
 ## 输出说明
 
@@ -169,22 +186,25 @@ paper_zh.pdf
 
 对每个 PDF，脚本会依次执行：
 
-1. 上传 PDF 到临时文件托管服务
-2. 创建 MinerU 解析任务
-3. 轮询 MinerU，直到解析完成
-4. 下载 MinerU 返回的 ZIP 结果
-5. 在解析结果中定位 `full.md`
-6. 保护图片占位并按块翻译 Markdown
-7. 把译文 Markdown 渲染为 HTML
-8. 用无头浏览器打印为最终 PDF
+1. 直传 PDF 到 MinerU 存储并创建解析任务（默认；也可改走临时托管上传）
+2. 轮询 MinerU，直到解析完成
+3. 下载 MinerU 返回的 ZIP 结果
+4. 在解析结果中定位 `full.md`
+5. 保护公式、图片、代码块后按块翻译 Markdown
+6. 把译文 Markdown 渲染为 HTML
+7. 用无头浏览器打印为最终 PDF
+
+每个阶段的产物都会缓存在临时目录中，失败重跑时自动跳过已完成的阶段。
 
 ## 注意事项
 
-- 默认的临时上传接口是 `https://tmpfiles.org/api/v1/upload`
-- 可以通过 `--upload-api-url` 替换为其他兼容接口
+- 默认使用 MinerU 直传（`--upload-api-url mineru`），PDF 不经过第三方临时文件托管
+- 如需改用临时托管，可指定 `--upload-api-url https://tmpfiles.org/api/v1/upload` 或其他兼容接口
 - 脚本只扫描工作目录顶层的 `*.pdf` 文件
 - 已经生成的 `_zh.pdf` 文件不会被当作输入再次处理
-- 长公式通过 MathJax v4 渲染，并启用自动换行
+- 长公式通过 MathJax v3 渲染，并启用自动换行
+- 渲染 HTML 时从 CDN 加载 MathJax，需要网络可用
+- 可在工作目录放置 `ocr_repairs.json`（JSON 对象，原文到替换文本的映射）补充针对特定文档的 OCR 修复规则
 
 ## 适用场景
 
