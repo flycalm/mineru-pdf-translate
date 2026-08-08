@@ -1,33 +1,37 @@
 # MinerU PDF Translate
 
-`mineru-pdf-translate` 是一个可直接用于 Codex 的 skill，同时也包含一个可以独立运行的 Python 脚本，用来把本地 PDF 文档翻译成目标语言 PDF。
+English | [简体中文](README.zh-CN.md)
 
-## 效果展示
+`mineru-pdf-translate` is a ready-to-use Codex skill and standalone Python script that translates local PDF documents into PDFs in a target language.
 
-![alt text](361d25f9-c585-4067-b550-f346dc3a0e9f.png)
+## Demo
 
-整体流程是：
+![MinerU PDF Translate demo](361d25f9-c585-4067-b550-f346dc3a0e9f.png)
 
-1. 调用 MinerU 在线解析 PDF
-2. 使用 OpenAI 兼容接口翻译提取出的 Markdown
-3. 通过浏览器无头打印，把译文重新渲染成最终 PDF
+The end-to-end workflow:
 
-它适合论文、技术文档等场景，目标产物是带图片、带公式的最终译文 PDF，而不是中间 Markdown。
+1. Parse the PDF with the MinerU online API.
+2. Translate the extracted Markdown with an OpenAI-compatible API.
+3. Render the translation back into a final PDF through headless browser printing.
 
-## 功能特性
+The project is designed for research papers, technical documents, and similar content. Its output is a translated PDF with figures and formulas preserved, rather than intermediate Markdown alone.
 
-- 批量处理指定目录下的 PDF 文件
-- 使用 MinerU 提取文档结构和图片引用
-- 使用 OpenAI 兼容模型翻译 Markdown 内容
-- 在翻译过程中保护图片引用，避免链接被破坏
-- 使用 MathJax 渲染公式
-- 使用 Edge / Chrome / Chromium 输出最终 PDF
+## Features
 
-## 仓库结构
+- Batch-process PDFs in a specified directory
+- Extract document structure and image references with MinerU
+- Translate Markdown with an OpenAI-compatible model
+- Protect image references during translation so links remain intact
+- Render formulas with MathJax
+- Produce final PDFs with Edge, Chrome, or Chromium
+
+## Repository Structure
 
 ```text
 .
+|-- LICENSE
 |-- README.md
+|-- README.zh-CN.md
 |-- mineru-pdf-translate/
 |   |-- SKILL.md
 |   |-- agents/
@@ -37,58 +41,58 @@
 `-- 361d25f9-c585-4067-b550-f346dc3a0e9f.png
 ```
 
-## 运行要求
+## Requirements
 
-- Python 3.10 或更高版本（仅使用标准库发起网络请求，无需 curl）
-- 已安装 Microsoft Edge、Google Chrome 或 Chromium 之一，用于无头打印 PDF（Windows / macOS / Linux 均可）
-- 有可用的 MinerU API Token
-- 有可用的 OpenAI 兼容接口地址和 API Key
+- Python 3.10 or later. Network requests use the standard library, so `curl` is not required.
+- Microsoft Edge, Google Chrome, or Chromium for headless PDF printing on Windows, macOS, or Linux.
+- A MinerU API token.
+- An OpenAI-compatible base URL and API key.
 
-如果本机未安装 `markdown` 包，脚本会自动安装。
+If the Python `markdown` package is missing, the script installs it automatically.
 
-## 快速开始
+## Quick Start
 
-### 方式 1：作为 Codex skill 使用
+### Option 1: Use as a Codex skill
 
-把仓库里的 `mineru-pdf-translate/` 目录放到 Codex 的 skills 目录，例如：
+Copy the `mineru-pdf-translate/` directory into the Codex skills directory. For example, in PowerShell:
 
 ```powershell
 Copy-Item -Recurse .\mineru-pdf-translate $HOME\.codex\skills\mineru-pdf-translate
 ```
 
-然后在 Codex 里针对包含 PDF 的目录调用这个 skill。
+Then invoke the skill in Codex for a directory containing PDF files.
 
-### 方式 2：直接运行脚本
+### Option 2: Run the script directly
 
-在包含待翻译 PDF 的目录中执行：
+From the directory containing the PDFs to translate, run:
 
 ```powershell
 python <repo-dir>\mineru-pdf-translate\scripts\pdf_translate.py --workdir .
 ```
 
-例如：
+For example:
 
 ```powershell
 python C:\path\to\mineru-pdf-translate\mineru-pdf-translate\scripts\pdf_translate.py --workdir .
 ```
 
-## 配置方式
+## Configuration
 
-脚本优先读取工作目录中的本地配置文件；如果这些文件不存在，则回退到环境变量。
+The script first looks for local configuration files in the working directory. If they are absent, it falls back to environment variables.
 
-### 本地配置文件
+### Local configuration files
 
-在 PDF 所在目录中创建以下文件：
+Create the following files in the directory containing the PDFs:
 
 1. `mineru密钥.txt`
-   内容：MinerU API Token
+   Content: MinerU API token.
 2. `翻译大模型url以及key.txt`
-   第 1 行：OpenAI 兼容接口 Base URL
-   第 2 行：API Key
+   Line 1: OpenAI-compatible base URL.
+   Line 2: API key.
 
-### 环境变量
+### Environment variables
 
-也可以改为使用环境变量：
+Alternatively, configure the pipeline with environment variables:
 
 ```powershell
 $env:MINERU_API_TOKEN="your_mineru_token"
@@ -98,35 +102,35 @@ $env:PDF_TRANSLATE_MODEL="gpt-5.4-mini"
 $env:PDF_TRANSLATE_BROWSER="C:\Program Files\Google\Chrome\Application\chrome.exe"
 ```
 
-`PDF_TRANSLATE_MODEL` 与 `PDF_TRANSLATE_BROWSER` 是可选项，模型默认值为 `gpt-5.4-mini`。
+`PDF_TRANSLATE_MODEL` and `PDF_TRANSLATE_BROWSER` are optional. The default model is `gpt-5.4-mini`.
 
-## 使用示例
+## Usage Examples
 
-把当前目录中的所有 PDF 翻译成简体中文：
+Translate every PDF in the current directory into Simplified Chinese:
 
 ```powershell
 python <skill-dir>\scripts\pdf_translate.py --workdir .
 ```
 
-强制重建已存在的输出文件（同时丢弃缓存的解析与翻译结果）：
+Discard cached parsing and translation results and rebuild every output:
 
 ```powershell
 python <skill-dir>\scripts\pdf_translate.py --workdir . --force
 ```
 
-只改了渲染样式时，从缓存译文直接重新出 PDF：
+Re-render PDFs from cached translated Markdown after changing only the rendering styles:
 
 ```powershell
 python <skill-dir>\scripts\pdf_translate.py --workdir . --render-only --keep-temp
 ```
 
-翻译成其他语言，并自定义输出后缀：
+Translate into another language and choose a custom output suffix:
 
 ```powershell
 python <skill-dir>\scripts\pdf_translate.py --workdir . --target-language "Japanese" --target-suffix ja
 ```
 
-直接通过命令行指定 API 参数：
+Pass API settings directly on the command line:
 
 ```powershell
 python <skill-dir>\scripts\pdf_translate.py `
@@ -137,82 +141,82 @@ python <skill-dir>\scripts\pdf_translate.py `
   --llm-model "gpt-5.4-mini"
 ```
 
-## 主要参数
+## Main Options
 
-- `--workdir`：待处理 PDF 所在目录，同时也是可选配置文件目录
-- `--output-dir`：最终 PDF 输出目录，默认是 `translated`
-- `--temp-dir`：临时目录，默认是 `.pdf_translate_tmp`
-- `--target-language`：目标翻译语言，默认是 `Simplified Chinese`
-- `--target-suffix`：输出文件名后缀，默认是 `zh`
-- `--source-language`：传给 MinerU 的源文档语言提示，默认是 `en`
-- `--mineru-token`：直接覆盖 MinerU Token
-- `--llm-base-url`：直接覆盖 OpenAI 兼容接口地址
-- `--llm-api-key`：直接覆盖 OpenAI 兼容接口 Key
-- `--llm-model`：指定模型名称
-- `--browser-path`：手动指定 Edge / Chrome / Chromium 路径
-- `--upload-api-url`：默认 `mineru`（直传 MinerU 存储）；也可指定 tmpfiles 兼容上传接口 URL
-- `--force`：丢弃缓存的解析与翻译结果，完全重跑
-- `--render-only`：跳过 MinerU 和 LLM，直接从缓存的译文 Markdown 重新渲染 PDF（配合 `--keep-temp` 使用）
-- `--keep-temp`：保留临时目录，不在结束后清理
+- `--workdir`: Directory containing the input PDFs and optional local configuration files.
+- `--output-dir`: Final PDF output directory. Defaults to `translated`.
+- `--temp-dir`: Temporary working directory. Defaults to `.pdf_translate_tmp`.
+- `--target-language`: Translation target language. Defaults to `Simplified Chinese`.
+- `--target-suffix`: Output filename suffix. Defaults to `zh`.
+- `--source-language`: Source language hint sent to MinerU. Defaults to `en`.
+- `--mineru-token`: Override the MinerU API token.
+- `--llm-base-url`: Override the OpenAI-compatible base URL.
+- `--llm-api-key`: Override the OpenAI-compatible API key.
+- `--llm-model`: Select the model name.
+- `--browser-path`: Set the Edge, Chrome, or Chromium executable path.
+- `--upload-api-url`: Defaults to `mineru` for direct MinerU storage upload. A tmpfiles-compatible upload endpoint may also be supplied.
+- `--force`: Discard cached parsing and translation results and rerun the complete pipeline.
+- `--render-only`: Skip MinerU and the LLM, then render a PDF from cached translated Markdown. Use with `--keep-temp`.
+- `--keep-temp`: Retain temporary files after a successful run.
 
-## 断点续跑
+## Resumable Processing
 
-临时目录中的中间产物同时是各阶段的缓存：
+Intermediate files in the temporary directory also serve as stage-level caches:
 
-- 已有 `mineru/full.md` 时跳过 MinerU 解析
-- 已有 `mineru/translated_<suffix>.md` 时跳过 LLM 翻译
-- 运行失败时临时目录自动保留，修复问题后重跑同一命令即可从断点继续
-- 想全部重来用 `--force`；只想改渲染样式后重出 PDF 用 `--render-only`
+- An existing `mineru/full.md` skips MinerU parsing.
+- An existing `mineru/translated_<suffix>.md` skips LLM translation.
+- The temporary directory is retained after failures. Rerun the same command after fixing the problem to resume from the last completed stage.
+- Use `--force` for a full rerun, or `--render-only` when only rendering needs to be repeated.
 
-## 输出说明
+## Output
 
-- 最终译文 PDF 输出到 `translated/`
-- 临时文件输出到 `.pdf_translate_tmp/`
-- 如果有失败项，会生成 `translated/failures.json`
+- Final translated PDFs are written to `translated/`.
+- Temporary files are written to `.pdf_translate_tmp/`.
+- If any documents fail, details are written to `translated/failures.json`.
 
-输出 PDF 文件名格式如下：
+Output filenames follow this pattern:
 
 ```text
 original_name_<target-suffix>.pdf
 ```
 
-例如：
+For example:
 
 ```text
 paper_zh.pdf
 ```
 
-## 处理流程
+## Processing Pipeline
 
-对每个 PDF，脚本会依次执行：
+For each PDF, the script:
 
-1. 直传 PDF 到 MinerU 存储并创建解析任务（默认；也可改走临时托管上传）
-2. 轮询 MinerU，直到解析完成
-3. 下载 MinerU 返回的 ZIP 结果
-4. 在解析结果中定位 `full.md`
-5. 保护公式、图片、代码块后按块翻译 Markdown
-6. 把译文 Markdown 渲染为 HTML
-7. 用无头浏览器打印为最终 PDF
+1. Uploads the PDF directly to MinerU storage and creates a parsing task by default. A temporary hosting service can be configured instead.
+2. Polls MinerU until parsing completes.
+3. Downloads the ZIP result returned by MinerU.
+4. Locates `full.md` in the extracted result.
+5. Protects formulas, images, and code blocks, then translates the Markdown in chunks.
+6. Renders the translated Markdown as HTML.
+7. Prints the HTML to the final PDF with a headless browser.
 
-每个阶段的产物都会缓存在临时目录中，失败重跑时自动跳过已完成的阶段。
+Each stage is cached in the temporary directory, so reruns automatically skip completed work.
 
-## 注意事项
+## Notes
 
-- 默认使用 MinerU 直传（`--upload-api-url mineru`），PDF 不经过第三方临时文件托管
-- 如需改用临时托管，可指定 `--upload-api-url https://tmpfiles.org/api/v1/upload` 或其他兼容接口
-- 脚本只扫描工作目录顶层的 `*.pdf` 文件
-- 已经生成的 `_zh.pdf` 文件不会被当作输入再次处理
-- 长公式通过 MathJax v3 渲染，并启用自动换行
-- 渲染 HTML 时从 CDN 加载 MathJax，需要网络可用
-- 可在工作目录放置 `ocr_repairs.json`（JSON 对象，原文到替换文本的映射）补充针对特定文档的 OCR 修复规则
+- Direct MinerU upload is the default (`--upload-api-url mineru`), so PDFs do not pass through a third-party temporary file host.
+- To use temporary hosting, pass `--upload-api-url https://tmpfiles.org/api/v1/upload` or another compatible endpoint.
+- The script scans only top-level `*.pdf` files in the working directory.
+- Generated `_zh.pdf` files are excluded from subsequent input scans.
+- MathJax v3 renders long formulas with automatic line breaking enabled.
+- HTML rendering loads MathJax from a CDN and therefore requires network access.
+- Place an `ocr_repairs.json` file in the working directory to add document-specific OCR repair mappings. The file must contain a JSON object that maps source strings to replacement text.
 
-## 适用场景
+## Use Cases
 
-- 论文翻译
-- 技术文档翻译
-- 本地 PDF 批量翻译
-- 希望直接得到最终译文 PDF，而不是只拿中间 Markdown 的工作流
+- Research paper translation
+- Technical documentation translation
+- Batch translation of local PDFs
+- Workflows that require a final translated PDF instead of intermediate Markdown alone
 
 ## License
 
-当前仓库还没有附带 License 文件。如果你希望公开授权他人复用，请补充合适的 License。
+This project is licensed under the [MIT License](LICENSE).
