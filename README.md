@@ -37,13 +37,16 @@ The project is designed for research papers, technical documents, and similar co
 |   |-- agents/
 |   |   `-- openai.yaml
 |   `-- scripts/
-|       `-- pdf_translate.py
+|       |-- pdf_translate.py
+|       |-- source_evidence.py
+|       `-- render_pdf.cjs
 `-- 361d25f9-c585-4067-b550-f346dc3a0e9f.png
 ```
 
 ## Requirements
 
-- Python 3.10 or later. Network requests use the standard library, so `curl` is not required.
+- Python 3.10 or later; source comparison requires `PyMuPDF` (`python -m pip install PyMuPDF`).
+- Node.js and the `playwright` package. Codex bundled dependencies are discovered automatically; elsewhere use `npm install playwright` and an existing browser.
 - Microsoft Edge, Google Chrome, or Chromium for headless PDF printing on Windows, macOS, or Linux.
 - A MinerU API token.
 - An OpenAI-compatible base URL and API key.
@@ -89,6 +92,8 @@ Create the following files in the directory containing the PDFs:
 2. `翻译大模型url以及key.txt`
    Line 1: OpenAI-compatible base URL.
    Line 2: API key.
+
+A combined `大模型和mineru的key.txt` file is also supported, with labelled `model:`, `url:`, `key:` and `mineru:` fields; values may be on the next line. Choose a model supporting image input for automatic OCR correction.
 
 ### Environment variables
 
@@ -145,7 +150,7 @@ python <skill-dir>\scripts\pdf_translate.py `
 
 - `--workdir`: Directory containing the input PDFs and optional local configuration files.
 - `--output-dir`: Final PDF output directory. Defaults to `translated`.
-- `--temp-dir`: Temporary working directory. Defaults to `.pdf_translate_tmp`.
+- `--temp-dir`: Temporary folder inside the workdir, separate from the output directory. Defaults to `.pdf_translate_tmp`.
 - `--target-language`: Translation target language. Defaults to `Simplified Chinese`.
 - `--target-suffix`: Output filename suffix. Defaults to `zh`.
 - `--source-language`: Source language hint sent to MinerU. Defaults to `en`.
@@ -158,13 +163,17 @@ python <skill-dir>\scripts\pdf_translate.py `
 - `--force`: Discard cached parsing and translation results and rerun the complete pipeline.
 - `--render-only`: Skip MinerU and the LLM, then render a PDF from cached translated Markdown. Use with `--keep-temp`.
 - `--keep-temp`: Retain temporary files after a successful run.
+- `--ocr-correction auto`: Compare formulas and tables to original PDF crops during translation (default); `off` disables source comparison.
+- `--workers 3`: Concurrent translation requests.
 
 ## Resumable Processing
 
 Intermediate files in the temporary directory also serve as stage-level caches:
 
 - An existing `mineru/full.md` skips MinerU parsing.
-- An existing `mineru/translated_<suffix>.md` skips LLM translation.
+- A translation skips model calls only when source, model, endpoint, target language and correction mode match.
+- Each successful chunk is cached separately; interrupted runs retry unfinished chunks.
+- MinerU task IDs survive upload, polling and download failures.
 - The temporary directory is retained after failures. Rerun the same command after fixing the problem to resume from the last completed stage.
 - Use `--force` for a full rerun, or `--render-only` when only rendering needs to be repeated.
 
@@ -172,7 +181,7 @@ Intermediate files in the temporary directory also serve as stage-level caches:
 
 - Final translated PDFs are written to `translated/`.
 - Temporary files are written to `.pdf_translate_tmp/`.
-- If any documents fail, details are written to `translated/failures.json`.
+- If any documents fail, details are written to `.pdf_translate_tmp/failures.json`.
 
 Output filenames follow this pattern:
 
@@ -194,9 +203,9 @@ For each PDF, the script:
 2. Polls MinerU until parsing completes.
 3. Downloads the ZIP result returned by MinerU.
 4. Locates `full.md` in the extracted result.
-5. Protects formulas, images, and code blocks, then translates the Markdown in chunks.
+5. Protects formulas, tables, images and code blocks; translates chunks while comparing OCR against original formula/table crops.
 6. Renders the translated Markdown as HTML.
-7. Prints the HTML to the final PDF with a headless browser.
+7. Waits for fonts, images and MathJax, validates rendering, then replaces the final PDF only after successful printing.
 
 Each stage is cached in the temporary directory, so reruns automatically skip completed work.
 
@@ -206,7 +215,9 @@ Each stage is cached in the temporary directory, so reruns automatically skip co
 - To use temporary hosting, pass `--upload-api-url https://tmpfiles.org/api/v1/upload` or another compatible endpoint.
 - The script scans only top-level `*.pdf` files in the working directory.
 - Generated `_zh.pdf` files are excluded from subsequent input scans.
-- MathJax v3 renders long formulas with automatic line breaking enabled.
+- Confirmed formulas render through MathJax v3. Uncertain or invalid corrections and formula rendering errors fall back to original PDF crops.
+- Local images are embedded and short temporary rendering paths avoid Windows image-loading failures.
+- Correction targets OCR transcription, not the author's mathematics or experimental conclusions. Complex material still merits source comparison; no separate QA report is generated.
 - HTML rendering loads MathJax from a CDN and therefore requires network access.
 - Place an `ocr_repairs.json` file in the working directory to add document-specific OCR repair mappings. The file must contain a JSON object that maps source strings to replacement text.
 

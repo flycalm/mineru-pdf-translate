@@ -20,7 +20,9 @@
 
 - 批量处理指定目录下的 PDF 文件
 - 使用 MinerU 提取文档结构和图片引用
-- 使用 OpenAI 兼容模型翻译 Markdown 内容
+- 使用 OpenAI 兼容模型翻译 Markdown，并结合原文截图纠正公式和表格的 OCR 错误
+- 无法确认或未通过验证的修正自动保留原文图像，不额外输出检查报告
+- 翻译分块缓存、断点续跑和有界并发
 - 在翻译过程中保护图片引用，避免链接被破坏
 - 使用 MathJax 渲染公式
 - 使用 Edge / Chrome / Chromium 输出最终 PDF
@@ -37,13 +39,16 @@
 |   |-- agents/
 |   |   `-- openai.yaml
 |   `-- scripts/
-|       `-- pdf_translate.py
+|       |-- pdf_translate.py
+|       |-- source_evidence.py
+|       `-- render_pdf.cjs
 `-- 361d25f9-c585-4067-b550-f346dc3a0e9f.png
 ```
 
 ## 运行要求
 
-- Python 3.10 或更高版本（仅使用标准库发起网络请求，无需 curl）
+- Python 3.10 或更高版本；自动原文纠正需要 `PyMuPDF`（`python -m pip install PyMuPDF`）
+- Node.js 和 `playwright` 包；自动识别 Codex 内置依赖，其他环境可用 `npm install playwright`，无需下载额外浏览器
 - 已安装 Microsoft Edge、Google Chrome 或 Chromium 之一，用于无头打印 PDF（Windows / macOS / Linux 均可）
 - 有可用的 MinerU API Token
 - 有可用的 OpenAI 兼容接口地址和 API Key
@@ -89,6 +94,8 @@ python C:\path\to\mineru-pdf-translate\mineru-pdf-translate\scripts\pdf_translat
 2. `翻译大模型url以及key.txt`
    第 1 行：OpenAI 兼容接口 Base URL
    第 2 行：API Key
+
+也支持单文件 `大模型和mineru的key.txt`，用 `model:`、`url:`、`key:`、`mineru:` 标记字段；字段值可在下一行。自动纠正应配置支持图片输入的模型。
 
 ### 环境变量
 
@@ -158,13 +165,17 @@ python <skill-dir>\scripts\pdf_translate.py `
 - `--force`：丢弃缓存的解析与翻译结果，完全重跑
 - `--render-only`：跳过 MinerU 和 LLM，直接从缓存的译文 Markdown 重新渲染 PDF（配合 `--keep-temp` 使用）
 - `--keep-temp`：保留临时目录，不在结束后清理
+- `--ocr-correction auto`：默认在翻译时用原文截图核对、纠正公式和表格；`off` 关闭原文比较
+- `--workers 3`：并发翻译请求数
 
 ## 断点续跑
 
 临时目录中的中间产物同时是各阶段的缓存：
 
 - 已有 `mineru/full.md` 时跳过 MinerU 解析
-- 已有 `mineru/translated_<suffix>.md` 时跳过 LLM 翻译
+- 译文和源文、模型、接口地址、目标语言、纠正模式匹配时跳过 LLM 翻译
+- 已成功的翻译分块单独缓存，失败重试只补充未完成的块
+- 已创建的 MinerU 任务 ID 会保留，上传、轮询或下载失败后可恢复原任务
 - 运行失败时临时目录自动保留，修复问题后重跑同一命令即可从断点继续
 - 想全部重来用 `--force`；只想改渲染样式后重出 PDF 用 `--render-only`
 
@@ -172,7 +183,7 @@ python <skill-dir>\scripts\pdf_translate.py `
 
 - 最终译文 PDF 输出到 `translated/`
 - 临时文件输出到 `.pdf_translate_tmp/`
-- 如果有失败项，会生成 `translated/failures.json`
+- 如果有失败项，会生成 `.pdf_translate_tmp/failures.json`
 
 输出 PDF 文件名格式如下：
 
@@ -194,9 +205,9 @@ paper_zh.pdf
 2. 轮询 MinerU，直到解析完成
 3. 下载 MinerU 返回的 ZIP 结果
 4. 在解析结果中定位 `full.md`
-5. 保护公式、图片、代码块后按块翻译 Markdown
+5. 保护公式、表格、图片和代码块，按块翻译；同时把原文公式和表格截图提供给模型纠正识别错误
 6. 把译文 Markdown 渲染为 HTML
-7. 用无头浏览器打印为最终 PDF
+7. 等待字体、图片和公式渲染完成，检查漏图和公式错误后打印；成功后才替换最终 PDF
 
 每个阶段的产物都会缓存在临时目录中，失败重跑时自动跳过已完成的阶段。
 
@@ -206,7 +217,9 @@ paper_zh.pdf
 - 如需改用临时托管，可指定 `--upload-api-url https://tmpfiles.org/api/v1/upload` 或其他兼容接口
 - 脚本只扫描工作目录顶层的 `*.pdf` 文件
 - 已经生成的 `_zh.pdf` 文件不会被当作输入再次处理
-- 长公式通过 MathJax v3 渲染，并启用自动换行
+- 公式使用 MathJax v3 渲染；模型不确定、修正结构无效或公式渲染错误时保留原文截图
+- 本地图片内嵌到 HTML，渲染使用短临时路径，避免 Windows 长路径漏图
+- 只纠正 OCR 转录错误，不改写论文数学推导或实验结论；复杂内容仍需对照原文抽查
 - 渲染 HTML 时从 CDN 加载 MathJax，需要网络可用
 - 可在工作目录放置 `ocr_repairs.json`（JSON 对象，原文到替换文本的映射）补充针对特定文档的 OCR 修复规则
 
