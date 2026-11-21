@@ -1,5 +1,9 @@
 # MinerU PDF Translate
 
+<!-- yarkr:badges:start -->
+[![Indexed on Yarkr](https://api.yarkr.com/functions/v1/api/api/v1/badges/repos/flycalm/mineru-pdf-translate/version.svg)](https://yarkr.com/arks/flycalm/mineru-pdf-translate)
+<!-- yarkr:badges:end -->
+
 English | [简体中文](README.zh-CN.md)
 
 `mineru-pdf-translate` is a ready-to-use Codex skill and standalone Python script that translates local PDF documents into PDFs in a target language.
@@ -78,6 +82,38 @@ For example:
 ```powershell
 python C:\path\to\mineru-pdf-translate\mineru-pdf-translate\scripts\pdf_translate.py --workdir .
 ```
+
+<!-- yarkr:install:start -->
+## Install with Yarkr
+
+This repo is indexed on [Yarkr](https://yarkr.com/arks/flycalm/mineru-pdf-translate) as the ark [flycalm/mineru-pdf-translate](https://yarkr.com/arks/flycalm/mineru-pdf-translate), so its skills install into Claude Code, Codex, Cursor and other agent harnesses with one command.
+
+### CLI
+
+Install the whole ark, which Yarkr keeps equal to this repo:
+
+```bash
+npx yarkr-cli sync flycalm/mineru-pdf-translate
+```
+
+Or add individual skills:
+
+```bash
+npx yarkr-cli add skill:flycalm/mineru-pdf-translate/mineru-pdf-translate
+```
+
+No Node.js? `curl -fsSL https://yarkr.com/install.sh | sh` (macOS, Linux) or `irm https://yarkr.com/install.ps1 | iex` (Windows PowerShell) installs `yarkr` as a standalone binary; then type `yarkr` in place of `npx yarkr-cli`.
+
+### MCP
+
+Connect your agent to the ark over MCP:
+
+```bash
+npx yarkr-cli mcp add flycalm/mineru-pdf-translate
+```
+
+Or point any MCP client at `https://api.yarkr.com/functions/v1/api/mcp/o/flycalm/mineru-pdf-translate`.
+<!-- yarkr:install:end -->
 
 ## Configuration
 
