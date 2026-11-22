@@ -1,5 +1,9 @@
 # MinerU PDF Translate
 
+<!-- yarkr:badges:start -->
+[![Indexed on Yarkr](https://api.yarkr.com/functions/v1/api/api/v1/badges/repos/flycalm/mineru-pdf-translate/version.svg)](https://yarkr.com/arks/flycalm/mineru-pdf-translate)
+<!-- yarkr:badges:end -->
+
 [English](README.md) | 简体中文
 
 `mineru-pdf-translate` 是一个可直接用于 Codex 的 skill，同时也包含一个可以独立运行的 Python 脚本，用来把本地 PDF 文档翻译成目标语言 PDF。
@@ -80,6 +84,36 @@ python <repo-dir>\mineru-pdf-translate\scripts\pdf_translate.py --workdir .
 ```powershell
 python C:\path\to\mineru-pdf-translate\mineru-pdf-translate\scripts\pdf_translate.py --workdir .
 ```
+
+<!-- yarkr:install:start -->
+## 通过 Yarkr 安装
+
+本仓库已被 [Yarkr](https://yarkr.com/arks/flycalm/mineru-pdf-translate) 收录为 ark [flycalm/mineru-pdf-translate](https://yarkr.com/arks/flycalm/mineru-pdf-translate)，可以用一条命令把其中的 skill 安装到 Claude Code、Codex、Cursor 等 agent 工具中。
+
+### CLI
+
+安装整个 ark（Yarkr 会让它与本仓库保持一致）。以下命令固定了 CLI 的发布版本，npm 会按注册表中的完整性哈希校验：
+
+```bash
+npx yarkr-cli@1.1.0 sync flycalm/mineru-pdf-translate
+```
+
+或者只添加单个 skill：
+
+```bash
+npx yarkr-cli@1.1.0 add skill:flycalm/mineru-pdf-translate/mineru-pdf-translate
+```
+
+### MCP
+
+通过 MCP 把你的 agent 连接到这个 ark：
+
+```bash
+npx yarkr-cli@1.1.0 mcp add flycalm/mineru-pdf-translate
+```
+
+也可以让任意 MCP 客户端直接连接 `https://api.yarkr.com/functions/v1/api/mcp/o/flycalm/mineru-pdf-translate`。
+<!-- yarkr:install:end -->
 
 ## 配置方式
 

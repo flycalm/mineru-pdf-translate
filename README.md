@@ -90,26 +90,24 @@ This repo is indexed on [Yarkr](https://yarkr.com/arks/flycalm/mineru-pdf-transl
 
 ### CLI
 
-Install the whole ark, which Yarkr keeps equal to this repo:
+Install the whole ark, which Yarkr keeps equal to this repo. The commands pin the CLI to a released version, which npm checks against the registry's integrity hash:
 
 ```bash
-npx yarkr-cli sync flycalm/mineru-pdf-translate
+npx yarkr-cli@1.1.0 sync flycalm/mineru-pdf-translate
 ```
 
 Or add individual skills:
 
 ```bash
-npx yarkr-cli add skill:flycalm/mineru-pdf-translate/mineru-pdf-translate
+npx yarkr-cli@1.1.0 add skill:flycalm/mineru-pdf-translate/mineru-pdf-translate
 ```
-
-No Node.js? `curl -fsSL https://yarkr.com/install.sh | sh` (macOS, Linux) or `irm https://yarkr.com/install.ps1 | iex` (Windows PowerShell) installs `yarkr` as a standalone binary; then type `yarkr` in place of `npx yarkr-cli`.
 
 ### MCP
 
 Connect your agent to the ark over MCP:
 
 ```bash
-npx yarkr-cli mcp add flycalm/mineru-pdf-translate
+npx yarkr-cli@1.1.0 mcp add flycalm/mineru-pdf-translate
 ```
 
 Or point any MCP client at `https://api.yarkr.com/functions/v1/api/mcp/o/flycalm/mineru-pdf-translate`.
